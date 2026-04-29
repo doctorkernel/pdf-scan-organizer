@@ -96,6 +96,7 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
             base_url=str(lm_cfg.get("base_url", "http://127.0.0.1:1234")),
             model=str(lm_cfg.get("model", "")),
             batch_size=max(1, int(lm_cfg.get("batch_size", 5))),
+            max_input_tokens=max(1000, int(lm_cfg.get("max_input_tokens", 6000))),
             debug=bool(lm_cfg.get("debug", False)),
         )
 
@@ -252,7 +253,8 @@ def main() -> int:
     if config.lm_config:
         debug(
             f"LM Studio enabled model={config.lm_config.model} base_url={config.lm_config.base_url} "
-            f"batch_size={config.lm_config.batch_size} debug={config.lm_config.debug}"
+            f"batch_size={config.lm_config.batch_size} max_input_tokens={config.lm_config.max_input_tokens} "
+            f"debug={config.lm_config.debug}"
         )
 
     manifest = load_manifest(config.state_file)

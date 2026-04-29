@@ -13,6 +13,7 @@ Behavior:
 - names files as `YYYY-MM-DD Description-Codex.pdf`
 - appends `-Codex-ToReview` when later pages appear unrelated to page 1
 - keeps a resume manifest so you can stop and restart safely
+- estimates LM Studio input tokens and automatically splits oversized batches
 
 ## Setup
 
@@ -29,6 +30,12 @@ Edit [config.toml](/Users/openkernel/Documents/Codex/2026-04-28-what-would-be-th
 - `output.state_file`
 - `output.mode`
 - LM Studio settings
+
+For large OCR-heavy scans:
+
+- `batch_size` is the maximum number of PDFs per request
+- `max_input_tokens` is the estimated input-token budget that can force smaller batches
+- a good conservative setting is `batch_size = 2` and `max_input_tokens = 4000`
 
 ## Run
 
