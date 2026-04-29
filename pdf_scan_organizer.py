@@ -103,12 +103,15 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
 
     lm_config = None
     if bool(lm_cfg.get("enabled", False)):
+        configured_endpoints = lm_cfg.get("endpoints", [])
+        endpoints = [str(item).strip() for item in configured_endpoints if str(item).strip()]
         lm_config = LMStudioConfig(
             base_url=str(lm_cfg.get("base_url", "http://127.0.0.1:1234")),
             model=str(lm_cfg.get("model", "")),
             batch_size=max(1, int(lm_cfg.get("batch_size", 5))),
             max_input_tokens=max(1000, int(lm_cfg.get("max_input_tokens", 6000))),
             debug=bool(lm_cfg.get("debug", False)),
+            endpoints=endpoints or None,
         )
 
     return RuntimeConfig(

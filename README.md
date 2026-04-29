@@ -17,6 +17,7 @@ Behavior:
 - when OCR is used, saves the OCR-enhanced PDF as the main renamed file and also writes a sibling `...[Original].pdf`
 - keeps a resume manifest so you can stop and restart safely
 - estimates LM Studio input tokens and automatically splits oversized batches
+- can distribute one-document LM Studio requests across multiple hosts
 
 ## Setup
 
@@ -38,6 +39,7 @@ For large OCR-heavy scans:
 
 - `batch_size` is the maximum number of PDFs per request
 - `max_input_tokens` is the estimated input-token budget that can force smaller batches
+- `lm_studio.endpoints` can list 1, 2, or 3 LM Studio hosts; the organizer will round-robin work across them
 - the safest anti-contamination setting is `batch_size = 1`
 - a good conservative setting is `batch_size = 1` and `max_input_tokens = 4000`
 
