@@ -5,7 +5,9 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +18,8 @@ from pdf_archive_core import (
     LMStudioConfig,
     analyze_documents_batch,
     build_relative_output_path,
+    extract_pdf_page_texts,
+    is_low_signal_document,
     unique_output_path,
 )
 
@@ -38,6 +42,9 @@ class RuntimeConfig:
     dry_run: bool
     limit: int
     lm_config: Optional[LMStudioConfig]
+    ocr_enabled: bool
+    ocr_command: str
+    preserve_original_on_ocr: bool
 
 
 @dataclass
@@ -46,6 +53,9 @@ class PendingScan:
     document_input: DocumentInput
     stat_size: int
     stat_mtime_ns: int
+    original_bytes: bytes
+    uses_ocr: bool = False
+    ocr_missing: bool = False
 
 
 def debug(message: str) -> None:
@@ -82,6 +92,7 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
     output_cfg = raw.get("output", {})
     scan_cfg = raw.get("scanning", {})
     lm_cfg = raw.get("lm_studio", {})
+    ocr_cfg = raw.get("ocr", {})
 
     input_root = Path(args.input_root or input_cfg.get("root_dir", "."))
     filename_pattern = re.compile(str(input_cfg.get("filename_pattern", DEFAULT_PATTERN)))
@@ -109,6 +120,9 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
         dry_run=args.dry_run,
         limit=limit,
         lm_config=lm_config,
+        ocr_enabled=bool(ocr_cfg.get("enabled", False)),
+        ocr_command=str(ocr_cfg.get("command", "ocrmypdf")),
+        preserve_original_on_ocr=bool(ocr_cfg.get("preserve_original", True)),
     )
 
 
@@ -160,19 +174,81 @@ def iter_matching_files(config: RuntimeConfig, manifest: dict[str, Any]) -> list
     return matches
 
 
-def build_pending_scan(path: Path) -> PendingScan:
+def try_ocr_pdf(source_path: Path, command: str) -> Optional[bytes]:
+    if shutil.which(command) is None:
+        debug(f"OCR command not found: {command}")
+        return None
+    with tempfile.TemporaryDirectory(prefix="pdf-scan-organizer-ocr-") as tmpdir:
+        output_path = Path(tmpdir) / "ocr-output.pdf"
+        cmd = [
+            command,
+            "--skip-text",
+            "--output-type",
+            "pdf",
+            str(source_path),
+            str(output_path),
+        ]
+        debug(f"Running OCR command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            debug(f"OCR command failed code={result.returncode} stderr={result.stderr[:2000]}")
+            return None
+        return output_path.read_bytes()
+
+
+def build_pending_scan(path: Path, config: RuntimeConfig) -> PendingScan:
     stat = path.stat()
-    pdf_bytes = path.read_bytes()
+    original_bytes = path.read_bytes()
+    pdf_bytes = original_bytes
+    page_texts = extract_pdf_page_texts(pdf_bytes)
     document_input = DocumentInput(
         source_name=path.name,
         pdf_bytes=pdf_bytes,
         fallback_date=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        page_texts=page_texts,
+        extracted_text="\n".join(page_texts).strip(),
+    )
+
+    uses_ocr = False
+    ocr_missing = False
+    if is_low_signal_document(document_input):
+        if config.ocr_enabled:
+            ocr_bytes = try_ocr_pdf(path, config.ocr_command)
+            if ocr_bytes is not None:
+                ocr_page_texts = extract_pdf_page_texts(ocr_bytes)
+                ocr_input = DocumentInput(
+                    source_name=path.name,
+                    pdf_bytes=ocr_bytes,
+                    fallback_date=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+                    page_texts=ocr_page_texts,
+                    extracted_text="\n".join(ocr_page_texts).strip(),
+                )
+                if not is_low_signal_document(ocr_input):
+                    pdf_bytes = ocr_bytes
+                    document_input = ocr_input
+                    uses_ocr = True
+                else:
+                    ocr_missing = True
+            else:
+                ocr_missing = True
+        else:
+            ocr_missing = True
+
+    document_input = DocumentInput(
+        source_name=path.name,
+        pdf_bytes=pdf_bytes,
+        fallback_date=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+        page_texts=document_input.page_texts,
+        extracted_text=document_input.extracted_text,
     )
     return PendingScan(
         source_path=path,
         document_input=document_input,
         stat_size=stat.st_size,
         stat_mtime_ns=stat.st_mtime_ns,
+        original_bytes=original_bytes,
+        uses_ocr=uses_ocr,
+        ocr_missing=ocr_missing,
     )
 
 
@@ -182,6 +258,7 @@ def record_processed_file(
     output_path: Path,
     title: str,
     document_date: str,
+    original_saved_path: Optional[Path] = None,
 ) -> None:
     source_key = str(pending.source_path.resolve())
     record = {
@@ -192,7 +269,11 @@ def record_processed_file(
         "saved_filename": output_path.name,
         "title": title,
         "document_date": document_date,
+        "uses_ocr": pending.uses_ocr,
+        "ocr_missing": pending.ocr_missing,
     }
+    if original_saved_path is not None:
+        record["original_saved_path"] = str(original_saved_path)
     processed = dict(manifest.get("processed_files", {}))
     processed[source_key] = record
     manifest["processed_files"] = processed
@@ -204,7 +285,18 @@ def record_processed_file(
 
 
 def persist_scan(config: RuntimeConfig, pending: PendingScan, decision, manifest: dict[str, Any]) -> Path:
-    suffix = "-Codex-ToReview" if decision.needs_review else "-Codex"
+    base_relative_path = build_relative_output_path(
+        decision,
+        include_category=False,
+        filename_suffix="",
+        folder_style="nested_year_monthword",
+    )
+    suffix_parts = ["-Codex"]
+    if decision.needs_review:
+        suffix_parts.append("-ToReview")
+    if pending.ocr_missing:
+        suffix_parts.append("-OCRMissing")
+    suffix = "".join(suffix_parts)
     relative_path = build_relative_output_path(
         decision,
         include_category=False,
@@ -218,10 +310,22 @@ def persist_scan(config: RuntimeConfig, pending: PendingScan, decision, manifest
         return output_path
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    if config.mode == "copy":
-        shutil.copy2(pending.source_path, output_path)
+    original_output_path = None
+    if pending.uses_ocr:
+        output_path.write_bytes(pending.document_input.pdf_bytes)
+        if config.preserve_original_on_ocr:
+            original_output_path = unique_output_path(
+                output_path.parent,
+                f"{Path(base_relative_path.name).stem} [Original]{output_path.suffix}",
+            )
+            original_output_path.write_bytes(pending.original_bytes)
+        if config.mode == "move":
+            pending.source_path.unlink()
     else:
-        shutil.move(str(pending.source_path), str(output_path))
+        if config.mode == "copy":
+            shutil.copy2(pending.source_path, output_path)
+        else:
+            shutil.move(str(pending.source_path), str(output_path))
 
     record_processed_file(
         manifest,
@@ -229,6 +333,7 @@ def persist_scan(config: RuntimeConfig, pending: PendingScan, decision, manifest
         output_path,
         title=decision.title,
         document_date=decision.document_date.isoformat(),
+        original_saved_path=original_output_path,
     )
     save_manifest(config.state_file, manifest)
     print(f"{pending.source_path} -> {output_path}")
@@ -250,6 +355,10 @@ def main() -> int:
     debug(f"Output dir: {config.output_dir}")
     debug(f"State file: {config.state_file}")
     debug(f"Mode: {config.mode}")
+    debug(
+        f"OCR enabled={config.ocr_enabled} command={config.ocr_command} "
+        f"preserve_original_on_ocr={config.preserve_original_on_ocr}"
+    )
     if config.lm_config:
         debug(
             f"LM Studio enabled model={config.lm_config.model} base_url={config.lm_config.base_url} "
@@ -282,7 +391,7 @@ def main() -> int:
         return len(batch)
 
     for path in matches:
-        pending_batch.append(build_pending_scan(path))
+        pending_batch.append(build_pending_scan(path, config))
         if len(pending_batch) >= flush_size:
             processed_count += flush_batch(pending_batch, processed_count)
             pending_batch = []

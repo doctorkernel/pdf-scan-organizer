@@ -12,6 +12,9 @@ Behavior:
 - writes into `YYYY/MM-Month`
 - names files as `YYYY-MM-DD Description-Codex.pdf`
 - appends `-Codex-ToReview` when later pages appear unrelated to page 1
+- appends `-OCRMissing` when the file still has too little text to trust naming
+- can run local OCR with `ocrmypdf` for low-signal scans
+- when OCR is used, saves the OCR-enhanced PDF as the main renamed file and also writes a sibling `...[Original].pdf`
 - keeps a resume manifest so you can stop and restart safely
 - estimates LM Studio input tokens and automatically splits oversized batches
 
@@ -35,7 +38,14 @@ For large OCR-heavy scans:
 
 - `batch_size` is the maximum number of PDFs per request
 - `max_input_tokens` is the estimated input-token budget that can force smaller batches
-- a good conservative setting is `batch_size = 2` and `max_input_tokens = 4000`
+- the safest anti-contamination setting is `batch_size = 1`
+- a good conservative setting is `batch_size = 1` and `max_input_tokens = 4000`
+
+OCR settings:
+
+- `ocr.enabled = true` turns on `ocrmypdf` for low-signal scans
+- `ocr.command` controls which OCR binary to invoke
+- `ocr.preserve_original = true` keeps a `...[Original].pdf` beside the renamed OCR output
 
 ## Run
 
