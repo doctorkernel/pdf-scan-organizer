@@ -203,10 +203,11 @@ def record_processed_file(
 
 
 def persist_scan(config: RuntimeConfig, pending: PendingScan, decision, manifest: dict[str, Any]) -> Path:
+    suffix = "-Codex-ToReview" if decision.needs_review else "-Codex"
     relative_path = build_relative_output_path(
         decision,
         include_category=False,
-        filename_suffix="-Codex",
+        filename_suffix=suffix,
         folder_style="nested_year_monthword",
     )
     output_path = unique_output_path(config.output_dir / relative_path.parent, relative_path.name)

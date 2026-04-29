@@ -8,8 +8,10 @@ Behavior:
 - only processes files whose names still look like unrenamed scans
 - default pattern: `scan####.pdf`, `scana####.pdf`, `scanb####.pdf`
 - batches local PDF text to LM Studio for better naming
+- prefers page 1 as the primary naming/classification source
 - writes into `YYYY/MM-Month`
 - names files as `YYYY-MM-DD Description-Codex.pdf`
+- appends `-Codex-ToReview` when later pages appear unrelated to page 1
 - keeps a resume manifest so you can stop and restart safely
 
 ## Setup
