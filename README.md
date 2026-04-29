@@ -38,10 +38,11 @@ Edit [config.toml](/Users/openkernel/Documents/Codex/2026-04-28-what-would-be-th
 For large OCR-heavy scans:
 
 - `batch_size` is the maximum number of PDFs per request
+- `dispatch_window` is how many PDFs the organizer accumulates before handing work to the multi-host dispatcher
 - `max_input_tokens` is the estimated input-token budget that can force smaller batches
 - `lm_studio.endpoints` can list 1, 2, or 3 LM Studio hosts; the organizer will round-robin work across them
 - the safest anti-contamination setting is `batch_size = 1`
-- a good conservative setting is `batch_size = 1` and `max_input_tokens = 4000`
+- a good conservative setting is `batch_size = 1`, `dispatch_window = 3`, and `max_input_tokens = 4000`
 
 OCR settings:
 

@@ -45,6 +45,7 @@ class RuntimeConfig:
     ocr_enabled: bool
     ocr_command: str
     preserve_original_on_ocr: bool
+    dispatch_window: int
 
 
 @dataclass
@@ -102,6 +103,7 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
     limit = int(args.limit or scan_cfg.get("limit", 100))
 
     lm_config = None
+    dispatch_window = max(1, int(lm_cfg.get("dispatch_window", 1)))
     if bool(lm_cfg.get("enabled", False)):
         configured_endpoints = lm_cfg.get("endpoints", [])
         endpoints = [str(item).strip() for item in configured_endpoints if str(item).strip()]
@@ -113,6 +115,8 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
             debug=bool(lm_cfg.get("debug", False)),
             endpoints=endpoints or None,
         )
+        endpoint_count = len(lm_config.endpoint_urls())
+        dispatch_window = max(dispatch_window, endpoint_count * lm_config.batch_size)
 
     return RuntimeConfig(
         input_root=input_root,
@@ -126,6 +130,7 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
         ocr_enabled=bool(ocr_cfg.get("enabled", False)),
         ocr_command=str(ocr_cfg.get("command", "ocrmypdf")),
         preserve_original_on_ocr=bool(ocr_cfg.get("preserve_original", True)),
+        dispatch_window=dispatch_window,
     )
 
 
@@ -366,7 +371,8 @@ def main() -> int:
         debug(
             f"LM Studio enabled model={config.lm_config.model} base_url={config.lm_config.base_url} "
             f"batch_size={config.lm_config.batch_size} max_input_tokens={config.lm_config.max_input_tokens} "
-            f"debug={config.lm_config.debug}"
+            f"debug={config.lm_config.debug} endpoints={config.lm_config.endpoint_urls()} "
+            f"dispatch_window={config.dispatch_window}"
         )
 
     manifest = load_manifest(config.state_file)
@@ -377,7 +383,7 @@ def main() -> int:
 
     processed_count = 0
     pending_batch: list[PendingScan] = []
-    flush_size = config.lm_config.batch_size if config.lm_config else 1
+    flush_size = config.dispatch_window if config.lm_config else 1
     total_matches = len(matches)
 
     def flush_batch(batch: list[PendingScan], completed_before: int) -> int:
