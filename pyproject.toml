@@ -1,0 +1,12 @@
+[project]
+name = "pdf-scan-organizer"
+version = "0.1.0"
+description = "Organize local scanned PDFs into dated folders using local PDF parsing and LM Studio"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pdf-archive-core @ git+https://github.com/doctorkernel/pdf-archive-core.git",
+]
+
+[tool.setuptools]
+py-modules = ["pdf_scan_organizer"]
