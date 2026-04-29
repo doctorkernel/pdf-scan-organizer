@@ -263,16 +263,30 @@ def main() -> int:
     if not matches:
         return 0
 
-    pending_items = [build_pending_scan(path) for path in matches]
-    decisions = analyze_documents_batch(
-        [pending.document_input for pending in pending_items],
-        lm_config=config.lm_config,
-        debug_logger=debug,
-    )
-    for pending, decision in zip(pending_items, decisions):
-        persist_scan(config, pending, decision, manifest)
+    processed_count = 0
+    pending_batch: list[PendingScan] = []
+    flush_size = config.lm_config.batch_size if config.lm_config else 1
 
-    print(f"Processed {len(pending_items)} file(s).")
+    def flush_batch(batch: list[PendingScan]) -> int:
+        if not batch:
+            return 0
+        decisions = analyze_documents_batch(
+            [pending.document_input for pending in batch],
+            lm_config=config.lm_config,
+            debug_logger=debug,
+        )
+        for pending, decision in zip(batch, decisions):
+            persist_scan(config, pending, decision, manifest)
+        return len(batch)
+
+    for path in matches:
+        pending_batch.append(build_pending_scan(path))
+        if len(pending_batch) >= flush_size:
+            processed_count += flush_batch(pending_batch)
+            pending_batch = []
+
+    processed_count += flush_batch(pending_batch)
+    print(f"Processed {processed_count} file(s).")
     return 0
 
 
