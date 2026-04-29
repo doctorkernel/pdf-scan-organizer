@@ -9,7 +9,7 @@ Behavior:
 - default pattern: `scan####.pdf`, `scana####.pdf`, `scanb####.pdf`
 - batches local PDF text to LM Studio for better naming
 - prefers page 1 as the primary naming/classification source
-- writes into `YYYY/MM-Month`
+- writes into `YYYY/MM-Mon`
 - names files as `YYYY-MM-DD Description-Codex.pdf`
 - appends `-Codex-ToReview` when later pages appear unrelated to page 1
 - appends `-OCRMissing` when the file still has too little text to trust naming
