@@ -266,10 +266,12 @@ def main() -> int:
     processed_count = 0
     pending_batch: list[PendingScan] = []
     flush_size = config.lm_config.batch_size if config.lm_config else 1
+    total_matches = len(matches)
 
-    def flush_batch(batch: list[PendingScan]) -> int:
+    def flush_batch(batch: list[PendingScan], completed_before: int) -> int:
         if not batch:
             return 0
+        print(f"About to process {len(batch)}/{total_matches} ({completed_before})")
         decisions = analyze_documents_batch(
             [pending.document_input for pending in batch],
             lm_config=config.lm_config,
@@ -282,10 +284,10 @@ def main() -> int:
     for path in matches:
         pending_batch.append(build_pending_scan(path))
         if len(pending_batch) >= flush_size:
-            processed_count += flush_batch(pending_batch)
+            processed_count += flush_batch(pending_batch, processed_count)
             pending_batch = []
 
-    processed_count += flush_batch(pending_batch)
+    processed_count += flush_batch(pending_batch, processed_count)
     print(f"Processed {processed_count} file(s).")
     return 0
 
